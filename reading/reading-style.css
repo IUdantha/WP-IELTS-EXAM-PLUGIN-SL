@@ -1,0 +1,15 @@
+@media (max-width: 768px) {
+  /* Ensure the row takes the full viewport height */
+  #step1 .row,
+  #step2 .row,
+  #step3 .row {
+    height: 100vh;
+    margin: 0;
+  }
+
+  /* Split the view equally between passage and questions */
+  .passage-container,
+  .question-container {
+    max-height: 50vh !important;
+  }
+}

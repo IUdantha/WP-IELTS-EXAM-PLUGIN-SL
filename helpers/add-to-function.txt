@@ -1,0 +1,34 @@
+/**
+ * Save all the requests in the log files for the safe
+ */
+add_action('init', function () {
+    // Set log folder path and create folder if not exists
+    $log_folder = ABSPATH . 'wp-request-log/';  // Path to log folder
+    if (!file_exists($log_folder)) {
+        mkdir($log_folder, 0755, true);  // Create the folder if it doesn't exist
+    }
+
+    // Set log file name with the current date
+    $date = date('Y-m-d'); // e.g., 2025-07-10
+    $log_file = $log_folder . "wp-request-log-{$date}.txt"; // Creates a new file for each day
+
+    // Get current user ID (if logged in)
+    $user_id = get_current_user_id();
+
+    $log_data = [
+        'time' => date('Y-m-d H:i:s'),
+        'ip'   => $_SERVER['REMOTE_ADDR'],
+        'method' => $_SERVER['REQUEST_METHOD'],
+        'uri'  => $_SERVER['REQUEST_URI'],
+        'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+        'user_id' => $user_id, // Capture the logged-in user ID
+        'post_data' => $_POST,
+        'get_data' => $_GET,
+    ];
+
+    // Convert array to readable text
+    $log_entry = print_r($log_data, true) . "\n------------------------\n";
+
+    // Save to file (create a new file daily)
+    file_put_contents($log_file, $log_entry, FILE_APPEND | LOCK_EX);
+});

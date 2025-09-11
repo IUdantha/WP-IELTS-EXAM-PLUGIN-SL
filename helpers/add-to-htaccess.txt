@@ -1,0 +1,5 @@
+# Deny access to wp-request-log folder
+<Files "wp-request-log*.txt">
+  Order Deny,Allow
+  Deny from all
+</Files>
