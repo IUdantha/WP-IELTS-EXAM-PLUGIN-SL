@@ -20,6 +20,7 @@ require_once plugin_dir_path(__FILE__) . 'admin/class-ielts-writing-admin.php';
 require_once plugin_dir_path(__FILE__) . 'admin/class-ielts-speaking-admin.php';
 require_once plugin_dir_path(__FILE__) . 'admin/class-ielts-results-admin.php';
 require_once plugin_dir_path(__FILE__) . 'admin/function-activated-papers-admin.php';
+require_once plugin_dir_path(__FILE__) . 'admin/function-student-allocation-admin.php';
 
 // 2. Include the necessary shortcodes
 require_once plugin_dir_path(__FILE__) . 'reading/shortcode.php';
@@ -46,6 +47,7 @@ function ielts_exam_activate_plugin() {
     $table_writing = $wpdb->prefix . 'ielts_writing_questions';
     $table_speaking = $wpdb->prefix . 'ielts_speaking_questions';
     $table_activation = $wpdb->prefix . 'ielts_activated_papers';
+    $table_allocations = $wpdb->prefix . 'ielts_teacher_allocations';
 
     $table_results = $wpdb->prefix . 'ielts_results';
 
@@ -162,6 +164,16 @@ function ielts_exam_activate_plugin() {
         PRIMARY KEY (id)
     ) $charset_collate;";
 
+    // create the allocations table (one row per teacher)
+    $sql7 = "CREATE TABLE IF NOT EXISTS $table_allocations (
+        id MEDIUMINT(9) NOT NULL AUTO_INCREMENT,
+        teacher_id BIGINT(20) NOT NULL,
+        student_ids LONGTEXT NOT NULL,   /* JSON array of WP user IDs (subscribers) */
+        updated_at DATETIME NOT NULL,
+        PRIMARY KEY (id),
+        UNIQUE KEY teacher_id (teacher_id)
+    ) $charset_collate;";
+
     require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
     dbDelta( $sql1 );
     dbDelta( $sql2 );
@@ -169,6 +181,7 @@ function ielts_exam_activate_plugin() {
     dbDelta( $sql4 );
     dbDelta( $sql5 );
     dbDelta( $sql6 );
+    dbDelta( $sql7 );
 }
 register_activation_hook( __FILE__, 'ielts_exam_activate_plugin' );
 
@@ -246,6 +259,16 @@ function ielts_exam_register_admin_menu() {
         'ielts_exam_activation_page'
     );
 
+    // Submenu: Student allocations
+    add_submenu_page(
+        'ielts-exam',
+        __( 'Student allocations', 'ielts-exam' ),
+        __( 'Student allocations', 'ielts-exam' ),
+        'manage_options', /* admin-only as requested */
+        'ielts-exam-allocations',
+        'ielts_exam_student_allocations_page'
+    );
+
     // Submenu: Settings
     add_submenu_page(
         'ielts-exam',
@@ -286,6 +309,7 @@ function ielts_exam_enqueue_admin_assets( $hook ) {
         'ielts-exam_page_ielts-exam-listening',
         'ielts-exam_page_ielts-exam-speaking',
         'ielts-exam_page_ielts-exam-results',
+        'ielts-exam_page_ielts-exam-allocations',
         'ielts-exam_page_ielts-exam-settings'
     ];
 
@@ -301,60 +325,6 @@ function ielts_exam_enqueue_admin_assets( $hook ) {
         array(),
         '5.3.0'
     );
-}
-
-add_action('wp_ajax_ielts_toggle_reading_status', 'ielts_toggle_reading_status');
-
-function ielts_toggle_reading_status() {
-    // Security
-    check_ajax_referer('ielts_toggle_reading_status', 'nonce');
-
-    if ( ! is_user_logged_in() ) {
-        wp_send_json_error( array('message' => 'Not authorized.') );
-    }
-
-    $id     = isset($_POST['id'])     ? intval($_POST['id']) : 0;
-    $status = isset($_POST['status']) ? sanitize_text_field($_POST['status']) : '';
-
-    if ( ! $id || ! in_array( $status, array('active','inactive'), true ) ) {
-        wp_send_json_error( array('message' => 'Invalid request.') );
-    }
-
-    global $wpdb;
-    $table = $wpdb->prefix . 'ielts_reading_questions';
-
-    // Get row & ownership
-    $row = $wpdb->get_row( $wpdb->prepare("SELECT id, teacher_id FROM $table WHERE id=%d", $id) );
-    if ( ! $row ) {
-        wp_send_json_error( array('message' => 'Paper not found.') );
-    }
-
-    $current_user  = wp_get_current_user();
-    $roles         = (array) $current_user->roles;
-    $is_admin      = current_user_can('administrator') || in_array('administrator', $roles, true);
-    $is_contrib    = in_array('contributor', $roles, true);
-
-    // Permission: admins OR (contributor AND owns it)
-    if ( ! $is_admin && ! ( $is_contrib && (int)$row->teacher_id === (int)$current_user->ID ) ) {
-        wp_send_json_error( array('message' => 'You do not have permission to change this status.') );
-    }
-
-    $ok = $wpdb->update(
-        $table,
-        array( 'status' => $status ),
-        array( 'id' => $id ),
-        array( '%s' ),
-        array( '%d' )
-    );
-
-    if ( $ok === false ) {
-        wp_send_json_error( array('message' => 'Database update failed.') );
-    }
-
-    wp_send_json_success( array(
-        'status'       => $status,
-        'status_label' => $status === 'active' ? 'Active' : 'Inactive',
-    ) );
 }
 
 

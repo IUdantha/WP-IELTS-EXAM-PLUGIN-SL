@@ -682,3 +682,60 @@ function ielts_reading_exam_take_exam( $exam_id ) {
     </script>
     <?php
 }
+
+
+
+add_action('wp_ajax_ielts_toggle_reading_status', 'ielts_toggle_reading_status');
+
+//Toggle reading status (active/inactive) via AJAX
+function ielts_toggle_reading_status() {
+    // Security
+    check_ajax_referer('ielts_toggle_reading_status', 'nonce');
+
+    if ( ! is_user_logged_in() ) {
+        wp_send_json_error( array('message' => 'Not authorized.') );
+    }
+
+    $id     = isset($_POST['id'])     ? intval($_POST['id']) : 0;
+    $status = isset($_POST['status']) ? sanitize_text_field($_POST['status']) : '';
+
+    if ( ! $id || ! in_array( $status, array('active','inactive'), true ) ) {
+        wp_send_json_error( array('message' => 'Invalid request.') );
+    }
+
+    global $wpdb;
+    $table = $wpdb->prefix . 'ielts_reading_questions';
+
+    // Get row & ownership
+    $row = $wpdb->get_row( $wpdb->prepare("SELECT id, teacher_id FROM $table WHERE id=%d", $id) );
+    if ( ! $row ) {
+        wp_send_json_error( array('message' => 'Paper not found.') );
+    }
+
+    $current_user  = wp_get_current_user();
+    $roles         = (array) $current_user->roles;
+    $is_admin      = current_user_can('administrator') || in_array('administrator', $roles, true);
+    $is_contrib    = in_array('contributor', $roles, true);
+
+    // Permission: admins OR (contributor AND owns it)
+    if ( ! $is_admin && ! ( $is_contrib && (int)$row->teacher_id === (int)$current_user->ID ) ) {
+        wp_send_json_error( array('message' => 'You do not have permission to change this status.') );
+    }
+
+    $ok = $wpdb->update(
+        $table,
+        array( 'status' => $status ),
+        array( 'id' => $id ),
+        array( '%s' ),
+        array( '%d' )
+    );
+
+    if ( $ok === false ) {
+        wp_send_json_error( array('message' => 'Database update failed.') );
+    }
+
+    wp_send_json_success( array(
+        'status'       => $status,
+        'status_label' => $status === 'active' ? 'Active' : 'Inactive',
+    ) );
+}
