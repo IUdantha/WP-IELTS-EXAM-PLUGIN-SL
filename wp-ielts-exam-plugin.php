@@ -80,6 +80,7 @@ function ielts_exam_activate_plugin() {
         id MEDIUMINT(9) NOT NULL AUTO_INCREMENT,
         type VARCHAR(20) NOT NULL,           -- academic, general, or all
         mode VARCHAR(20) NOT NULL,
+        teacher_id BIGINT(20) NOT NULL,
         exam_name VARCHAR(255) NOT NULL,
         audio_file VARCHAR(255) NOT NULL,
         time_duration FLOAT(3,2) NOT NULL DEFAULT '1.0',

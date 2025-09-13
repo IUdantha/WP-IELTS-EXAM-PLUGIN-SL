@@ -40,6 +40,19 @@ class IELTS_Listening_Admin {
             self::save_listening_paper();
         }
 
+        // Fetch teachers (admins + contributors)
+        $teacher_users = get_users( array(
+            'role__in' => array('administrator','contributor'),
+            'orderby'  => 'user_login',
+            'order'    => 'ASC',
+            'fields'   => array('ID','user_login')
+        ) );
+
+        // Default preselect: if current user is admin/contributor, preselect them
+        $current = get_current_user_id();
+        $current_is_teacher = current_user_can('administrator') || current_user_can('contributor');
+        $default_teacher_id = $current_is_teacher ? $current : 0;
+
         ?>
         <div class="wrap">
             <h1>Add New Listening Paper</h1>
@@ -73,6 +86,20 @@ class IELTS_Listening_Admin {
                         <option value="active">Active</option>
                         <option value="inactive">Inactive</option>
                     </select>
+                </div>
+
+                <!-- Choose Teachers name -->
+                <div class="mb-3" style="max-width:300px;">
+                <label for="teacher_id" class="form-label"><strong>Teacher Username</strong></label><br>
+                <select name="teacher_id" id="teacher_id" class="form-select" required>
+                    <option value="">— Select teacher —</option>
+                    <?php foreach ( $teacher_users as $tu ): ?>
+                    <option value="<?php echo esc_attr($tu->ID); ?>"
+                            <?php selected($tu->ID, $default_teacher_id); ?>>
+                        <?php echo esc_html($tu->user_login); ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
                 </div>
 
                 <!-- Exam Name -->
@@ -195,6 +222,7 @@ class IELTS_Listening_Admin {
         $exam_name     = isset($_POST['exam_name'])     ? sanitize_text_field($_POST['exam_name'])     : '';
         $time_duration = isset($_POST['time_duration']) ? floatval($_POST['time_duration'])            : 1.0;
         $audio_file = isset($_POST['audio_file']) ? sanitize_text_field($_POST['audio_file']) : '';
+        $teacher_id = isset($_POST['teacher_id']) ? intval($_POST['teacher_id']) : 0;
 
 
         // 1. Check if a file was uploaded
@@ -220,6 +248,20 @@ class IELTS_Listening_Admin {
                 // For example, you could set an admin notice:
                 echo '<div class="error"><p>Error uploading file: '.esc_html($uploaded_file['error']).'</p></div>';
             }
+        }
+
+        // (Optional safety) ensure selected user is admin or contributor
+        $ok_teacher = false;
+        if ( $teacher_id ) {
+            $u = get_userdata($teacher_id);
+            if ( $u && ( in_array('administrator',$u->roles,true) || in_array('contributor',$u->roles,true) ) ) {
+                $ok_teacher = true;
+            }
+        }
+        if ( ! $ok_teacher ) {
+            // Fallback: no teacher selected/invalid -> block or fallback.
+            // Here we hard-block; you can choose to fallback to current user if you prefer.
+            wp_die('Please select a valid Teacher (Administrator or Contributor).');
         }
 
 
@@ -249,6 +291,7 @@ class IELTS_Listening_Admin {
         $data = array(
             'type'          => $type,
             'mode'          => $mode,
+            'teacher_id'   => $teacher_id, 
             'exam_name'     => $exam_name,
             'audio_file'    => $audio_file_url,
             'time_duration' => $time_duration,
@@ -290,6 +333,14 @@ class IELTS_Listening_Admin {
             echo '<div class="error"><p>No record found.</p></div>';
             return;
         }
+
+        // retrive the teachers (admins + contributors)
+        $teacher_users = get_users( array(
+            'role__in' => array('administrator','contributor'),
+            'orderby'  => 'user_login',
+            'order'    => 'ASC',
+            'fields'   => array('ID','user_login')
+        ) );
     
         // 2. If the form is submitted, process it
         if ( isset($_POST['ielts_listening_nonce']) && wp_verify_nonce($_POST['ielts_listening_nonce'], 'ielts_listening_save') ) {
@@ -323,6 +374,20 @@ class IELTS_Listening_Admin {
                         <option value="activity"  <?php selected($row->mode, 'activity'); ?>>Activity</option>
                         <option value="final"      <?php selected($row->mode, 'final'); ?>>Final</option>
                     </select>
+                </div>
+
+                <!-- Choose the teachers username -->
+                <div class="mb-3" style="max-width:300px;">
+                <label for="teacher_id" class="form-label"><strong>Teacher Username</strong></label><br>
+                <select name="teacher_id" id="teacher_id" class="form-select" required>
+                    <option value="">— Select teacher —</option>
+                    <?php foreach ( $teacher_users as $tu ): ?>
+                    <option value="<?php echo esc_attr($tu->ID); ?>"
+                            <?php selected($row->teacher_id, $tu->ID); ?>>
+                        <?php echo esc_html($tu->user_login); ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
                 </div>
     
                 <!-- Status -->
@@ -512,6 +577,7 @@ class IELTS_Listening_Admin {
         $status        = isset($_POST['status']) ? sanitize_text_field($_POST['status']) : 'inactive';
         $exam_name     = isset($_POST['exam_name']) ? sanitize_text_field($_POST['exam_name']) : '';
         $time_duration = isset($_POST['time_duration']) ? floatval($_POST['time_duration']) : 1.0;
+        $teacher_id = isset($_POST['teacher_id']) ? intval($_POST['teacher_id']) : 0;
     
         // Handle new audio file if uploaded
         $old_audio_file = $wpdb->get_var( $wpdb->prepare("SELECT audio_file FROM $table_name WHERE id=%d", $id) );
@@ -556,10 +622,23 @@ class IELTS_Listening_Admin {
         $questions_4 = isset($_POST['questions_4']) ? $_POST['questions_4'] : '';
         $answer_4    = isset($_POST['answer_4'])    ? $_POST['answer_4']    : '';
     
+
+        $ok_teacher = false;
+        if ( $teacher_id ) {
+            $u = get_userdata($teacher_id);
+            if ( $u && ( in_array('administrator',$u->roles,true) || in_array('contributor',$u->roles,true) ) ) {
+                $ok_teacher = true;
+            }
+        }
+        if ( ! $ok_teacher ) {
+            wp_die('Please select a valid Teacher (Administrator or Contributor).');
+        }
+
         // Build data array
         $data = array(
             'type'          => $type,
             'mode'          => $mode,
+            'teacher_id'    => $teacher_id, 
             'exam_name'     => $exam_name,
             'audio_file'    => $new_audio_file,
             'time_duration' => $time_duration,
@@ -694,6 +773,7 @@ class IELTS_Listening_Admin {
                         <th>Exam Name</th>
                         <th>Time (hr)</th>
                         <th>Status</th>
+                        <th>Teacher Username</th> 
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -704,6 +784,14 @@ class IELTS_Listening_Admin {
                 $results = $wpdb->get_results( "SELECT * FROM $table_name ORDER BY id DESC" );
                 if ( $results ) {
                     foreach ( $results as $row ) {
+
+                    // NEW: Teacher username
+                    $teacher_username = '—';
+                    if ( !empty($row->teacher_id) ) {
+                        $t = get_userdata( $row->teacher_id );
+                        if ( $t ) $teacher_username = $t->user_login;
+                    }
+
                         echo '<tr>';
                         echo '<td>' . esc_html($row->id) . '</td>';
                         echo '<td>' . esc_html($row->type) . '</td>';
@@ -711,6 +799,7 @@ class IELTS_Listening_Admin {
                         echo '<td>' . esc_html($row->exam_name) . '</td>';
                         echo '<td>' . esc_html($row->time_duration) . '</td>';
                         echo '<td>' . esc_html($row->status) . '</td>';
+                        echo '<td>' . esc_html($teacher_username) . '</td>'; 
                         echo '<td>
                                 <a href="' . admin_url('admin.php?page=ielts-exam-listening&action=edit&id=' . $row->id ) . '">Edit</a> |
                                 <a href="' . admin_url('admin.php?page=ielts-exam-listening&action=view&id=' . $row->id ) . '">View</a> |
