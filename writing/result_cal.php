@@ -99,25 +99,39 @@ function ielts_writing_marking_view($marking_id) {
 
     // 1. If form is submitted, process
     if ( isset($_POST['ielts_writing_marking_submit']) && wp_verify_nonce($_POST['ielts_writing_marking_nonce'], 'ielts_writing_marking') ) {
-        $result_val    = isset($_POST['result'])    ? floatval($_POST['result'])    : 0;
-        // clamp 0..100
-        if ($result_val < 0) { $result_val=0; }
-        if ($result_val > 100){ $result_val=100;}
+      /* ──  get the four inputs ─────────────────────────── */
+      $gr  = isset($_POST['gr'])  ? floatval($_POST['gr'])  : 0;
+      $cc  = isset($_POST['cc'])  ? floatval($_POST['cc'])  : 0;
+      $lr  = isset($_POST['lr'])  ? floatval($_POST['lr'])  : 0;
+      $gra = isset($_POST['gra']) ? floatval($_POST['gra']) : 0;
 
-        $bandscore_val = isset($_POST['bandscore']) ? sanitize_text_field($_POST['bandscore']) : '0';
-        
-        // update ielts_results set result=?, bandscore=?, status='accept'
-        $wpdb->update(
-            $table_results,
-            array(
-                'result'  => $result_val,
-                'bandscore' => $bandscore_val,
-                'status'  => 'accept',
-            ),
-            array('id' => $marking_id),
-            array('%f','%s','%s'),
-            array('%d')
-        );
+      /* clamp 0…9 */
+      foreach ( ['gr','cc','lr','gra'] as $v ){
+          if ( $$v < 0 ) $$v = 0;
+          if ( $$v > 9 ) $$v = 9;
+      }
+
+      /* ── build the raw-string for “result” ───────────── */
+      $result_string = "{$gr}+{$cc}+{$lr}+{$gra}";   // e.g. 9+3+5+8
+
+      /* ── calculate rounded bandscore ─────────────────── */
+      $avg         = ( $gr + $cc + $lr + $gra ) / 4;
+      $band_rounded = round( $avg * 2 ) / 2;         // nearest 0.5
+      if ( $band_rounded < 0 ) $band_rounded = 0;
+      if ( $band_rounded > 9 ) $band_rounded = 9;
+
+      /* ── write to DB ─────────────────────────────────── */
+      $wpdb->update(
+          $table_results,
+          array(
+              'result'    => $result_string,      // raw string
+              'bandscore' => $band_rounded,       // rounded average
+              'status'    => 'accept',
+          ),
+          array( 'id' => $marking_id ),
+          array( '%s','%f','%s' ),
+          array( '%d' )
+      );
 
         // redirect or show success
         echo '<div class="alert alert-success">Marked successfully!</div>';
@@ -184,28 +198,34 @@ function ielts_writing_marking_view($marking_id) {
       </div>
 
       <hr/>
+      <h5>Marking</h5>
       <form method="post" onsubmit="return confirmMark();">
         <?php wp_nonce_field('ielts_writing_marking','ielts_writing_marking_nonce'); ?>
 
-        <div class="mb-3" style="max-width:200px;">
-          <label for="result" class="form-label">Result (0 to 100)</label>
-          <input type="number" name="result" id="result" class="form-control" min="0" max="100" step="0.01" value="0" require/>
+        <div class="g-3 mb-3" style="max-width:100%;">
+          <?php
+          $criteria = array(
+              'gr'  => 'Task achievement (GR)',
+              'cc'  => 'Coherence &amp; cohesion (CC)',
+              'lr'  => 'Lexical resources (LR)',
+              'gra' => 'Grammatical range &amp; accuracy (GRA)',
+          );
+          foreach ( $criteria as $key => $label ): ?>
+            <div class="col-6 col-md-3">
+              <label class="form-label"><?php echo $label; ?></label>
+              <input  type="number"
+                      name="<?php echo $key; ?>"
+                      class="form-control score-input"
+                      min="0" max="9" step="0.5" value="0" required>
+            </div>
+          <?php endforeach; ?>
         </div>
 
+        <!-- ──  Bandscore (readonly, auto–calculated) ───────── -->
         <div class="mb-3" style="max-width:200px;">
-          <label for="bandscore" class="form-label">Bandscore</label>
-          <select name="bandscore" id="bandscore" class="form-select">
-            <!-- The dropdown with 9, 8.5, 8, 7.5, etc. -->
-            <?php 
-            $band_options = array(
-              '9','8.5','8','7.5','7','6.5','6','5.5','5','4.5',
-              '4','3.5','3','2.5','2','1.5','1','0.5','0'
-            );
-            foreach($band_options as $bval) {
-              echo '<option value="'.esc_attr($bval).'">'.esc_html($bval).'</option>';
-            }
-            ?>
-          </select>
+          <label class="form-label fw-bold">Bandscore&nbsp;(0–9)</label>
+          <input type="text" id="result" name="result"
+                class="form-control" readonly value="0">
         </div>
 
         <button type="submit" name="ielts_writing_marking_submit" class="btn btn-primary">Submit Mark</button>
@@ -216,6 +236,21 @@ function ielts_writing_marking_view($marking_id) {
         function confirmMark() {
             return confirm("Once you submit the mark, please note that you cannot change it at all.\n\nDo you want to proceed?");
         }
+
+        /* ───── live average of the four inputs ───── */
+        function calc(){
+          const vals = Array.from(document.querySelectorAll('.score-input'))
+                            .map(i=>parseFloat(i.value)||0);
+          const sum  = vals.reduce((a,b)=>a+b,0);
+          const avg  = sum / 4;
+
+          /* round to nearest .0 / .5 */
+          const rounded = Math.round(avg * 2) / 2;
+
+          document.getElementById('result').value = rounded.toFixed(1);  // show 1-dec place
+        }
+        document.querySelectorAll('.score-input').forEach(i=>i.addEventListener('input',calc));
+        calc();              /* initialise */
     </script>
 
     <?php
