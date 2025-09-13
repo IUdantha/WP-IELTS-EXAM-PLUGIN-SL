@@ -223,11 +223,7 @@ function ielts_writing_exam_list() {
                             <td><?php echo esc_html($row->time_duration); ?></td>
                             <?php if (! $is_subscriber): ?>
                             <td>
-<<<<<<< Updated upstream
                                 <label class="ielts-switch" title="<?php echo $can_toggle ? 'Toggle status' : 'You cannot change this'; ?>">
-=======
-                                <label class="ielts-switch" title="Toggle status">
->>>>>>> Stashed changes
                                     <input type="checkbox"
                                            class="status-toggle"
                                            data-id="<?php echo esc_attr($row->id); ?>"
@@ -462,13 +458,6 @@ function ielts_writing_exam_take_exam( $exam_id ) {
                 let countdownElem = document.getElementById("countdownTextWriting");
                 let timeSpentInput = document.getElementById("timeSpentInput");
                 let examForm = document.getElementById("ieltsWritingForm");
- <script>
-    (function(){
-        let durationSeconds = <?php echo $duration_seconds; ?>;
-        let timeSpent = 0;
-        let countdownElem = document.getElementById("countdownTextWriting");
-        let timeSpentInput = document.getElementById("timeSpentInput");
-        let examForm = document.getElementById("ieltsWritingForm");
 
                 // warn user if they try to reload
                 function warnBeforeUnload(e) {
