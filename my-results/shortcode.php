@@ -149,7 +149,7 @@ function ielts_my_results_shortcode() {
                   <td>reviewing</td>
                 <?php else : ?>
                   <!-- Show result/bandscore normally -->
-                  <td><?php echo number_format( (float) $row->result, 2 ); ?></td>
+                  <td><?php echo esc_html($row->result); ?></td>
                   <td><?php echo esc_html($row->bandscore); ?></td>
                 <?php endif; ?>
                 <td><?php echo esc_html($row->completed_date_time); ?></td>
