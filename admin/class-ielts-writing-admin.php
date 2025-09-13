@@ -57,6 +57,7 @@ class IELTS_Writing_Admin {
                         <th>Exam Name</th>
                         <th>Time (hr)</th>
                         <th>Status</th>
+                        <th>Teacher Username</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
@@ -68,6 +69,19 @@ class IELTS_Writing_Admin {
     
                 if ( $results ) {
                     foreach ( $results as $row ) {
+
+                        // NEW: Teacher username
+                        $teacher_username = '—';
+                        if ( !empty($row->teacher_id) ) {
+                            $t = get_userdata( $row->teacher_id );
+                            if ( $t ) $teacher_username = $t->user_login;
+                        }
+
+                        $formatted_date = $row->created_at
+                            ? date_i18n( get_option('date_format') . ' ' . get_option('time_format'),
+                                        strtotime($row->created_at) )
+                            : '';
+
                         echo '<tr>';
                         echo '<td>' . esc_html($row->id) . '</td>';
                         echo '<td>' . esc_html($row->type) . '</td>';
@@ -75,6 +89,7 @@ class IELTS_Writing_Admin {
                         echo '<td>' . esc_html($row->exam_name) . '</td>';
                         echo '<td>' . esc_html($row->time_duration) . '</td>';
                         echo '<td>' . esc_html($row->status) . '</td>';
+                        echo '<td>' . esc_html($teacher_username) . '</td>';
                         echo '<td>
                                 <a href="' . admin_url('admin.php?page=ielts-exam-writing&action=edit&id=' . $row->id ) . '">Edit</a> |
                                 <a href="' . admin_url('admin.php?page=ielts-exam-writing&action=view&id=' . $row->id ) . '">View</a> |
@@ -126,6 +141,19 @@ class IELTS_Writing_Admin {
             self::save_writing_paper();
         }
 
+        // Fetch teachers (admins + contributors)
+        $teacher_users = get_users( array(
+            'role__in' => array('administrator','contributor'),
+            'orderby'  => 'user_login',
+            'order'    => 'ASC',
+            'fields'   => array('ID','user_login')
+        ) );
+
+        // Default preselect: if current user is admin/contributor, preselect them
+        $current = get_current_user_id();
+        $current_is_teacher = current_user_can('administrator') || current_user_can('contributor');
+        $default_teacher_id = $current_is_teacher ? $current : 0;
+
         ?>
         <div class="wrap">
             <h1>Add New Writing Paper</h1>
@@ -150,6 +178,20 @@ class IELTS_Writing_Admin {
                         <option value="activity">Activity</option>
                         <option value="final">Final</option>
                     </select>
+                </div>
+
+                <!-- Choose Teachers name -->
+                <div class="mb-3" style="max-width:300px;">
+                <label for="teacher_id" class="form-label"><strong>Teacher Username</strong></label><br>
+                <select name="teacher_id" id="teacher_id" class="form-select" required>
+                    <option value="">— Select teacher —</option>
+                    <?php foreach ( $teacher_users as $tu ): ?>
+                    <option value="<?php echo esc_attr($tu->ID); ?>"
+                            <?php selected($tu->ID, $default_teacher_id); ?>>
+                        <?php echo esc_html($tu->user_login); ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
                 </div>
 
                 <!-- Status: Active, Inactive -->
@@ -221,6 +263,7 @@ class IELTS_Writing_Admin {
         $status        = isset($_POST['status'])        ? sanitize_text_field($_POST['status']) : 'general';
         $exam_name     = isset($_POST['exam_name'])     ? sanitize_text_field($_POST['exam_name']) : '';
         $time_duration = isset($_POST['time_duration']) ? floatval($_POST['time_duration']) : 1.0;
+        $teacher_id = isset($_POST['teacher_id']) ? intval($_POST['teacher_id']) : 0;
 
         // Remove all the HTML/ CSS restrictions that wordpress offer (warn: can be XSS)
         remove_filter('content_save_pre', 'wp_filter_post_kses'); 
@@ -235,6 +278,20 @@ class IELTS_Writing_Admin {
         $questions_2 = isset($_POST['questions_2']) ? $_POST['questions_2']  : '';
         $answer_2    = isset($_POST['answer_2'])    ? $_POST['answer_2']     : '';
 
+        // (Optional safety) ensure selected user is admin or contributor
+        $ok_teacher = false;
+        if ( $teacher_id ) {
+            $u = get_userdata($teacher_id);
+            if ( $u && ( in_array('administrator',$u->roles,true) || in_array('contributor',$u->roles,true) ) ) {
+                $ok_teacher = true;
+            }
+        }
+        if ( ! $ok_teacher ) {
+            // Fallback: no teacher selected/invalid -> block or fallback.
+            // Here we hard-block; you can choose to fallback to current user if you prefer.
+            wp_die('Please select a valid Teacher (Administrator or Contributor).');
+        }
+
         // Current user
         $current_user_id = get_current_user_id();
         $current_time = current_time('mysql');
@@ -242,6 +299,7 @@ class IELTS_Writing_Admin {
         $data = array(
             'type'          => $type,
             'mode'          => $mode,
+            'teacher_id'   => $teacher_id, 
             'exam_name'     => $exam_name,
             'time_duration' => $time_duration,
             'questions_1'   => $questions_1,
@@ -285,6 +343,14 @@ class IELTS_Writing_Admin {
             self::update_writing_paper($id);
             return;
         }
+
+        // retrive the teachers (admins + contributors)
+        $teacher_users = get_users( array(
+            'role__in' => array('administrator','contributor'),
+            'orderby'  => 'user_login',
+            'order'    => 'ASC',
+            'fields'   => array('ID','user_login')
+        ) );
     
         // Otherwise, show the form with pre-filled data
         ?>
@@ -311,6 +377,20 @@ class IELTS_Writing_Admin {
                         <option value="activity" <?php selected($row->mode, 'activity'); ?>>Activity</option>
                         <option value="final" <?php selected($row->mode, 'final'); ?>>Final</option>
                     </select>
+                </div>
+
+                <!-- Choose the teachers username -->
+                <div class="mb-3" style="max-width:300px;">
+                <label for="teacher_id" class="form-label"><strong>Teacher Username</strong></label><br>
+                <select name="teacher_id" id="teacher_id" class="form-select" required>
+                    <option value="">— Select teacher —</option>
+                    <?php foreach ( $teacher_users as $tu ): ?>
+                    <option value="<?php echo esc_attr($tu->ID); ?>"
+                            <?php selected($row->teacher_id, $tu->ID); ?>>
+                        <?php echo esc_html($tu->user_login); ?>
+                    </option>
+                    <?php endforeach; ?>
+                </select>
                 </div>
     
                 <!-- Status: Active, Inactive -->
@@ -385,6 +465,7 @@ class IELTS_Writing_Admin {
         $status        = isset($_POST['status'])        ? sanitize_text_field($_POST['status']) : 'general';
         $exam_name     = isset($_POST['exam_name'])     ? sanitize_text_field($_POST['exam_name']) : '';
         $time_duration = isset($_POST['time_duration']) ? floatval($_POST['time_duration']) : 1.0;
+        $teacher_id = isset($_POST['teacher_id']) ? intval($_POST['teacher_id']) : 0;
     
         // Remove all the HTML/ CSS restrictions that wordpress offer (warn: can be XSS)
         remove_filter('content_save_pre', 'wp_filter_post_kses'); 
@@ -398,10 +479,22 @@ class IELTS_Writing_Admin {
     
         $questions_2 = isset($_POST['questions_2']) ? $_POST['questions_2']  : '';
         $answer_2    = isset($_POST['answer_2'])    ? $_POST['answer_2']     : '';
+
+        $ok_teacher = false;
+        if ( $teacher_id ) {
+            $u = get_userdata($teacher_id);
+            if ( $u && ( in_array('administrator',$u->roles,true) || in_array('contributor',$u->roles,true) ) ) {
+                $ok_teacher = true;
+            }
+        }
+        if ( ! $ok_teacher ) {
+            wp_die('Please select a valid Teacher (Administrator or Contributor).');
+        }
     
         $data = array(
             'type'          => $type,
             'mode'          => $mode,
+            'teacher_id'    => $teacher_id, 
             'exam_name'     => $exam_name,
             'time_duration' => $time_duration,
             'questions_1'   => $questions_1,
