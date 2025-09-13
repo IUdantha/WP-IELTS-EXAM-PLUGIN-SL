@@ -1,5 +1,26 @@
 <?php
 
+/**
+ * Return an array of teacher IDs this student is allocated to.
+ */
+function ielts_get_allocated_teacher_ids_for_student( $student_id ) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'ielts_teacher_allocations';
+
+    $rows = $wpdb->get_results( "SELECT teacher_id, student_ids FROM $table", ARRAY_A );
+    if ( ! $rows ) return array();
+
+    $out = array();
+    foreach ( $rows as $r ) {
+        $list = json_decode( $r['student_ids'], true );
+        if ( is_array($list) && in_array( (int)$student_id, array_map('intval', $list), true ) ) {
+            $out[] = (int) $r['teacher_id'];
+        }
+    }
+    return array_values( array_unique( $out ) );
+}
+
+
 function ielts_exam_student_allocations_page() {
     if ( ! current_user_can('manage_options') ) {
         wp_die( esc_html__('You do not have sufficient permissions to access this page.', 'ielts-exam') );
