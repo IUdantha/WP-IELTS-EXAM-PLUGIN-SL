@@ -455,6 +455,13 @@ function ielts_writing_exam_take_exam( $exam_id ) {
     </div>
 
     <!-- Timer + Step Navigation Script -->
+        <script>
+            (function(){
+                let durationSeconds = <?php echo $duration_seconds; ?>; 
+                let timeSpent = 0;
+                let countdownElem = document.getElementById("countdownTextWriting");
+                let timeSpentInput = document.getElementById("timeSpentInput");
+                let examForm = document.getElementById("ieltsWritingForm");
  <script>
     (function(){
         let durationSeconds = <?php echo $duration_seconds; ?>;
@@ -463,34 +470,82 @@ function ielts_writing_exam_take_exam( $exam_id ) {
         let timeSpentInput = document.getElementById("timeSpentInput");
         let examForm = document.getElementById("ieltsWritingForm");
 
-        // Countdown timer logic
-        let timer = setInterval(function(){
-            if(durationSeconds <= 0) {
-                clearInterval(timer);
-                countdownElem.textContent = "Time Up!";
-                document.getElementById("ielts_writing_submit").click();
-            } else {
-                let minutes = Math.floor(durationSeconds / 60);
-                let seconds = durationSeconds % 60;
-                countdownElem.textContent = minutes + "m " + seconds + "s";
-                durationSeconds--;
-                timeSpent++;
-                timeSpentInput.value = (timeSpent / 3600).toFixed(3);
+                // warn user if they try to reload
+                function warnBeforeUnload(e) {
+                    e.preventDefault();
+                    e.returnValue = "You are about to reload or leave the page. This will lose your exam progress.";
+                }
+                window.addEventListener("beforeunload", warnBeforeUnload);
+                examForm.addEventListener("submit", function() {
+                    window.removeEventListener("beforeunload", warnBeforeUnload);
+                });
+
+                // Simple countdown
+                let timer = setInterval(function(){
+                    if(durationSeconds <= 0) {
+                        clearInterval(timer);
+                        countdownElem.textContent = "Time Up!";
+                        submitExamBtn.click();
+                    } else {
+                        let minutes = Math.floor(durationSeconds / 60);
+                        let seconds = durationSeconds % 60;
+                        countdownElem.textContent = minutes + "m " + seconds + "s";
+                        durationSeconds--;
+                        timeSpent++;
+                        timeSpentInput.value = (timeSpent / 3600).toFixed(3); // store hours
+                    }
+                }, 1000);
+            })();
+
+            function goToStep(step) {
+                document.getElementById("step1").style.display = "none";
+                document.getElementById("step2").style.display = "none";
+                document.getElementById("step" + step).style.display = "block";
+                window.scrollTo({ top: 0, behavior: 'smooth' });
             }
-        }, 1000);
+            // default step 1
+            goToStep(1);
 
-        // Navigation between steps
-        function goToStep(step) {
-            document.getElementById("step1").style.display = "none";
-            document.getElementById("step2").style.display = "none";
-            document.getElementById("step" + step).style.display = "block";
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-        }
 
-        // Default to Step 1
-        goToStep(1);
-    })();
-    </script>
+            //Word count logic
+            document.addEventListener('DOMContentLoaded', function() {
+                // For each text area, we'll attach an event listener
+                const textAreaQ1 = document.getElementById("writingQ1");
+                const countQ1 = document.getElementById("writingQ1Count");
+
+                // If you have more questions, do the same for Q2...
+                const textAreaQ2 = document.getElementById("writingQ2");
+                const countQ2 = document.getElementById("writingQ2Count");
+
+                textAreaQ1.addEventListener("input", function() {
+                    // 1. Get the text
+                    const text = textAreaQ1.value.trim();
+                    // 2. Split on whitespace using a regex like /\s+/
+                    //    Filter out any empty strings if the user typed extra spaces
+                    const words = text.split(/\s+/).filter(word => word.length > 0);
+                    // 3. Display the length
+                    countQ1.textContent = words.length;
+                });
+
+                // If you have a second text area:
+                textAreaQ2.addEventListener("input", function() {
+                const text = textAreaQ2.value.trim();
+                const words = text.split(/\s+/).filter(word => word.length > 0);
+                countQ2.textContent = words.length;
+                });
+            });
+
+            document.addEventListener("DOMContentLoaded", function () {
+            const inputs = document.querySelectorAll("#ieltsWritingForm input, #ieltsWritingForm textarea");
+            inputs.forEach(input => {
+                input.setAttribute("autocomplete", "off");
+                input.setAttribute("spellcheck", "false");
+                input.setAttribute("autocorrect", "off");
+                input.setAttribute("autocapitalize", "off");
+            });
+
+            });
+        </script>
     <?php
 }
 
