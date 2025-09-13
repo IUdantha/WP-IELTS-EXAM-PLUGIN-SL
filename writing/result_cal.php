@@ -97,49 +97,11 @@ function ielts_writing_marking_view($marking_id) {
     $table_results  = $wpdb->prefix . 'ielts_results';
     $table_writing = $wpdb->prefix . 'ielts_writing_questions';
 
-    // 1. If form is submitted, process
-    if ( isset($_POST['ielts_writing_marking_submit']) && wp_verify_nonce($_POST['ielts_writing_marking_nonce'], 'ielts_writing_marking') ) {
-      /* ──  get the four inputs ─────────────────────────── */
-      $gr  = isset($_POST['gr'])  ? floatval($_POST['gr'])  : 0;
-      $cc  = isset($_POST['cc'])  ? floatval($_POST['cc'])  : 0;
-      $lr  = isset($_POST['lr'])  ? floatval($_POST['lr'])  : 0;
-      $gra = isset($_POST['gra']) ? floatval($_POST['gra']) : 0;
+    $current_user  = wp_get_current_user();
+    $roles         = (array) $current_user->roles;
+    $is_admin      = current_user_can('administrator') || in_array('administrator', $roles, true);
+    $is_contrib    = in_array('contributor', $roles, true);
 
-      /* clamp 0…9 */
-      foreach ( ['gr','cc','lr','gra'] as $v ){
-          if ( $$v < 0 ) $$v = 0;
-          if ( $$v > 9 ) $$v = 9;
-      }
-
-      /* ── build the raw-string for “result” ───────────── */
-      $result_string = "{$gr}+{$cc}+{$lr}+{$gra}";   // e.g. 9+3+5+8
-
-      /* ── calculate rounded bandscore ─────────────────── */
-      $avg         = ( $gr + $cc + $lr + $gra ) / 4;
-      $band_rounded = round( $avg * 2 ) / 2;         // nearest 0.5
-      if ( $band_rounded < 0 ) $band_rounded = 0;
-      if ( $band_rounded > 9 ) $band_rounded = 9;
-
-      /* ── write to DB ─────────────────────────────────── */
-      $wpdb->update(
-          $table_results,
-          array(
-              'result'    => $result_string,      // raw string
-              'bandscore' => $band_rounded,       // rounded average
-              'status'    => 'accept',
-          ),
-          array( 'id' => $marking_id ),
-          array( '%s','%f','%s' ),
-          array( '%d' )
-      );
-
-        // redirect or show success
-        echo '<div class="alert alert-success">Marked successfully!</div>';
-        echo '<a href="?"><button class="btn btn-secondary">Back to Pending List</button></a>';
-        return;
-    }
-
-    // 2. If not submitted, show the marking interface
     // fetch the result row
     $resRow = $wpdb->get_row( $wpdb->prepare("SELECT * FROM $table_results WHERE id=%d AND category='writing'", $marking_id) );
     if ( ! $resRow ) {
@@ -147,18 +109,20 @@ function ielts_writing_marking_view($marking_id) {
         return;
     }
 
+    // Check if the current user is the teacher for this student's exam
+    $exam_id = $resRow->exam_id;
+    $examRow = $wpdb->get_row( $wpdb->prepare("SELECT teacher_id FROM $table_writing WHERE id=%d", $exam_id) );
+
+    if ( ! $examRow || (int)$examRow->teacher_id !== (int)$current_user->ID ) {
+        // Teacher is not authorized to mark this exam
+        echo '<div class="alert alert-danger">You do not have permission to mark this exam.</div>';
+        return;
+    }
+
     // parse user answers
     $user_answers = maybe_unserialize($resRow->answers);
     if ( ! is_array($user_answers) ) {
         $user_answers = array();
-    }
-
-    // fetch the exam row from writing table
-    $exam_id = $resRow->exam_id;
-    $examRow = $wpdb->get_row( $wpdb->prepare("SELECT * FROM $table_writing WHERE id=%d", $exam_id) );
-    if ( ! $examRow ) {
-        echo '<div class="alert alert-danger">Writing exam data not found.</div>';
-        return;
     }
 
     // show the questions, user answers, plus the result/bandscore form
