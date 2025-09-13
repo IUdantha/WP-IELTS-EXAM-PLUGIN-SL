@@ -26,16 +26,34 @@ function ielts_writing_marking_shortcode() {
 
 function ielts_writing_marking_list() {
     global $wpdb;
-    $table_results = $wpdb->prefix . 'ielts_results';
+    $table_results  = $wpdb->prefix . 'ielts_results';
+    $table_writing  = $wpdb->prefix . 'ielts_writing_questions';
 
-    // Query: only 'writing' + 'pending'
-    $rows = $wpdb->get_results("
-        SELECT *
-        FROM $table_results
-        WHERE category='writing'
-          AND status='pending'
-        ORDER BY id DESC
-    ");
+    // Get current user
+    $current_user = wp_get_current_user();
+    $roles        = (array) $current_user->roles;
+    $is_admin     = current_user_can('administrator') || in_array('administrator', $roles, true);
+    $is_contrib   = in_array('contributor', $roles, true);
+
+    // Build the base query
+    $query = "
+        SELECT r.*, w.teacher_id
+        FROM $table_results r
+        LEFT JOIN $table_writing w ON r.exam_id = w.id
+        WHERE r.category = 'writing'
+        AND r.status = 'pending'
+    ";
+
+    // If the current user is a contributor (teacher), restrict the results to only their own exams
+    if (!$is_admin && $is_contrib) {
+        $query .= $wpdb->prepare(" AND w.teacher_id = %d", $current_user->ID);
+    }
+
+    // Order by result ID
+    $query .= " ORDER BY r.id DESC";
+
+    // Fetch results
+    $rows = $wpdb->get_results($query);
 
     ?>
     <div class="container my-4">
@@ -55,16 +73,16 @@ function ielts_writing_marking_list() {
         <tbody>
         <?php if ($rows): ?>
           <?php foreach ($rows as $row):
-                // fetch user data
+                // Fetch user data
                 $user_info = get_userdata($row->user_id);
                 $username = $user_info ? $user_info->user_login : 'Unknown';
                 // For first & last name, attempt to get them from user meta or from user_info->first_name, etc.
                 $first_name = get_user_meta($row->user_id, 'first_name', true);
                 $last_name  = get_user_meta($row->user_id, 'last_name', true);
-                // fallback if empty
+                // Fallback if empty
                 $full_name = trim($first_name . ' ' . $last_name);
                 if (empty($full_name)) {
-                  // fallback to display_name
+                  // Fallback to display_name
                   $full_name = $user_info ? $user_info->display_name : 'No Name';
                 }
           ?>
@@ -102,30 +120,30 @@ function ielts_writing_marking_view($marking_id) {
     $is_admin      = current_user_can('administrator') || in_array('administrator', $roles, true);
     $is_contrib    = in_array('contributor', $roles, true);
 
-    // fetch the result row
+    // Fetch the result row from ielts_results
     $resRow = $wpdb->get_row( $wpdb->prepare("SELECT * FROM $table_results WHERE id=%d AND category='writing'", $marking_id) );
     if ( ! $resRow ) {
         echo '<div class="alert alert-danger">Result not found or invalid category.</div>';
         return;
     }
 
-    // Check if the current user is the teacher for this student's exam
+    // Fetch the exam row from ielts_writing_questions
     $exam_id = $resRow->exam_id;
     $examRow = $wpdb->get_row( $wpdb->prepare("SELECT teacher_id FROM $table_writing WHERE id=%d", $exam_id) );
 
-    if ( ! $examRow || (int)$examRow->teacher_id !== (int)$current_user->ID ) {
-        // Teacher is not authorized to mark this exam
+    // Check if the current user is the teacher assigned to this exam
+    if ( !$is_admin && (int)$examRow->teacher_id !== (int)$current_user->ID ) {
         echo '<div class="alert alert-danger">You do not have permission to mark this exam.</div>';
         return;
     }
 
-    // parse user answers
+    // Parse user answers
     $user_answers = maybe_unserialize($resRow->answers);
     if ( ! is_array($user_answers) ) {
         $user_answers = array();
     }
 
-    // show the questions, user answers, plus the result/bandscore form
+    // Display the exam questions, user answers, and the marking form
     ?>
     <div class="container my-4">
       <h2>Mark Writing Exam (ID: <?php echo esc_html($marking_id); ?>)</h2>
@@ -185,7 +203,7 @@ function ielts_writing_marking_view($marking_id) {
           <?php endforeach; ?>
         </div>
 
-        <!-- ──  Bandscore (readonly, auto–calculated) ───────── -->
+        <!-- Bandscore (readonly, auto–calculated) -->
         <div class="mb-3" style="max-width:200px;">
           <label class="form-label fw-bold">Bandscore&nbsp;(0–9)</label>
           <input type="text" id="result" name="result"
@@ -201,7 +219,7 @@ function ielts_writing_marking_view($marking_id) {
             return confirm("Once you submit the mark, please note that you cannot change it at all.\n\nDo you want to proceed?");
         }
 
-        /* ───── live average of the four inputs ───── */
+        /* Live average of the four inputs */
         function calc(){
           const vals = Array.from(document.querySelectorAll('.score-input'))
                             .map(i=>parseFloat(i.value)||0);
