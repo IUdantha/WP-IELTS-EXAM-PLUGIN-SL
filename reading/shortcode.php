@@ -51,6 +51,25 @@ function ielts_reading_exam_shortcode() {
     return ob_get_clean();
 }
 
+/**
+ * Return an array of teacher IDs this student is allocated to.
+ */
+function ielts_get_allocated_teacher_ids_for_student( $student_id ) {
+    global $wpdb;
+    $table = $wpdb->prefix . 'ielts_teacher_allocations';
+
+    $rows = $wpdb->get_results( "SELECT teacher_id, student_ids FROM $table", ARRAY_A );
+    if ( ! $rows ) return array();
+
+    $out = array();
+    foreach ( $rows as $r ) {
+        $list = json_decode( $r['student_ids'], true );
+        if ( is_array($list) && in_array( (int)$student_id, array_map('intval', $list), true ) ) {
+            $out[] = (int) $r['teacher_id'];
+        }
+    }
+    return array_values( array_unique( $out ) );
+}
 
 
 
@@ -82,10 +101,23 @@ function ielts_reading_exam_list() {
         $where .= " AND status IN ('active','inactive')";
     }
 
-    // Teacher visibility rule
+    // Teacher visibility rule for contributors
     if ( $is_contributor && ! $is_admin ) {
         $where   .= " AND teacher_id = %d";
         $params[] = $current_user->ID;
+    }
+
+    // ✨ NEW: for subscribers, restrict to allocated teacher(s)
+    if ( $is_subscriber ) {
+        $allowed_teachers = ielts_get_allocated_teacher_ids_for_student( $current_user->ID );
+        if ( empty($allowed_teachers) ) {
+            // no allocations → show nothing
+            $where .= " AND 1=0";
+        } else {
+            $placeholders = implode(',', array_fill(0, count($allowed_teachers), '%d'));
+            $where       .= " AND teacher_id IN ($placeholders)";
+            $params       = array_merge($params, $allowed_teachers);
+        }
     }
 
     // Filters
@@ -111,21 +143,41 @@ function ielts_reading_exam_list() {
     $sql     = ! empty($params) ? $wpdb->prepare($query, $params) : $query;
     $results = $wpdb->get_results( $sql );
 
-    // Subscribers: restrict by activation table
+    // Subscribers: keep activation gating ON TOP of allocation (robust)
     if ( $is_subscriber ) {
-        $allowed = array();
-        $json = $wpdb->get_var(
+        $allowed_ids = array();
+
+        $raw = $wpdb->get_var(
             $wpdb->prepare(
-                "SELECT reading_paper_id FROM {$wpdb->prefix}ielts_activated_papers WHERE user_id=%d",
+                "SELECT reading_paper_id
+                FROM {$wpdb->prefix}ielts_activated_papers
+                WHERE user_id = %d",
                 $current_user->ID
             )
         );
-        if ( $json ) {
-            $allowed = json_decode($json, true);
-            if ( ! is_array($allowed) ) $allowed = array();
+
+        if ( is_string($raw) && $raw !== '' ) {
+            // 1) Try JSON
+            $arr = json_decode($raw, true);
+            if ( ! is_array($arr) ) {
+                // 2) Try serialized PHP
+                $maybe = maybe_unserialize($raw);
+                if ( is_array($maybe) ) {
+                    $arr = $maybe;
+                } else {
+                    // 3) Try comma-separated
+                    $arr = preg_split('/\s*,\s*/', $raw, -1, PREG_SPLIT_NO_EMPTY);
+                }
+            }
+            if ( is_array($arr) ) {
+                $allowed_ids = array_map('intval', $arr);
+            }
         }
-        $results = array_filter($results, function($r) use ($allowed){
-            return in_array($r->id, $allowed, true);
+
+        // If no activations exist, list will be empty (by design).
+        // If you want to show all allocated-teacher papers regardless of activation, remove this entire block.
+        $results = array_filter($results, function($r) use ($allowed_ids){
+            return in_array( (int)$r->id, $allowed_ids, true );
         });
     }
 
@@ -181,9 +233,8 @@ function ielts_reading_exam_list() {
             </div>
         </form>
 
-        <!-- Results Table -->
+        <!-- Results Table (unchanged HTML; subscribers never see Status col) -->
         <style>
-            /* Minimal CSS switch (independent of Bootstrap) */
             .ielts-switch { position: relative; display: inline-block; width: 46px; height: 24px; vertical-align: middle; }
             .ielts-switch input { opacity: 0; width: 0; height: 0; }
             .ielts-switch .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
@@ -258,44 +309,29 @@ function ielts_reading_exam_list() {
     (function(){
         const nonce = '<?php echo esc_js( $toggle_nonce ); ?>';
         const ajaxUrl = '<?php echo esc_url( admin_url('admin-ajax.php') ); ?>';
-
         document.querySelectorAll('.status-toggle').forEach(cb => {
             cb.addEventListener('change', function(){
                 const id = this.dataset.id;
                 const newStatus = this.checked ? 'active' : 'inactive';
                 const label = document.getElementById('status-label-' + id);
-
-                // disable while saving
                 this.disabled = true;
-
                 const fd = new FormData();
                 fd.append('action', 'ielts_toggle_reading_status');
                 fd.append('nonce', nonce);
                 fd.append('id', id);
                 fd.append('status', newStatus);
-
-                fetch(ajaxUrl, {
-                    method: 'POST',
-                    credentials: 'same-origin',
-                    body: fd
-                })
+                fetch(ajaxUrl, { method: 'POST', credentials: 'same-origin', body: fd })
                 .then(r => r.json())
                 .then(res => {
                     if (!res || !res.success) {
                         alert((res && res.data && res.data.message) ? res.data.message : 'Failed to update status.');
-                        // revert UI
                         this.checked = !this.checked;
                         return;
                     }
                     if (label) label.textContent = res.data.status_label || (newStatus === 'active' ? 'Active' : 'Inactive');
                 })
-                .catch(() => {
-                    alert('Network error.');
-                    this.checked = !this.checked;
-                })
-                .finally(() => {
-                    this.disabled = false;
-                });
+                .catch(() => { alert('Network error.'); this.checked = !this.checked; })
+                .finally(() => { this.disabled = false; });
             });
         });
     })();
@@ -307,7 +343,7 @@ function ielts_reading_exam_list() {
 
 
 function ielts_reading_exam_take_exam( $exam_id ) {
-    global $wpdb;
+   global $wpdb;
     $table_reading = $wpdb->prefix . 'ielts_reading_questions';
 
     $current_user  = wp_get_current_user();
@@ -317,27 +353,39 @@ function ielts_reading_exam_take_exam( $exam_id ) {
     $is_contributor = in_array('contributor', $roles, true);
     $is_subscriber  = in_array('subscriber',  $roles, true);
 
-    // Block unsupported roles
     if ( ! $is_admin && ! $is_contributor && ! $is_subscriber ) {
         echo '<div class="alert alert-danger">You do not have access to this exam.</div>';
         return;
     }
 
-    // Build visibility SQL
+    // ✨ NEW: we need the exam’s teacher_id to validate allocation for students
+    $exam_teacher_id = $wpdb->get_var(
+        $wpdb->prepare("SELECT teacher_id FROM $table_reading WHERE id=%d", $exam_id)
+    );
+    if ( $exam_teacher_id === null ) {
+        echo '<div class="alert alert-danger">Exam not found.</div>';
+        return;
+    }
+
     $params = array( $exam_id );
 
     if ( $is_admin ) {
-        // Admin: active or inactive
         $exam_sql = "SELECT * FROM $table_reading WHERE id = %d AND status IN ('active','inactive')";
     } elseif ( $is_contributor ) {
-        // Teacher: ONLY own exams, regardless of status
         $exam_sql = "SELECT * FROM $table_reading WHERE id = %d AND teacher_id = %d";
         $params[] = $current_user->ID;
     } else {
-        // Subscriber: active only
+        // Subscriber: must be allocated to THIS exam’s teacher
+        $allowed_teachers = ielts_get_allocated_teacher_ids_for_student( $current_user->ID );
+        if ( empty($allowed_teachers) || ! in_array( (int)$exam_teacher_id, $allowed_teachers, true ) ) {
+            echo '<div class="alert alert-danger">You do not have access to this exam.</div>';
+            return;
+        }
+
+        // Subscriber: status must be active
         $exam_sql = "SELECT * FROM $table_reading WHERE id = %d AND status = 'active'";
 
-        // Must also be in their activation list
+        // Subscriber: must also be activated
         $json = $wpdb->get_var(
             $wpdb->prepare(
                 "SELECT reading_paper_id
@@ -363,65 +411,42 @@ function ielts_reading_exam_take_exam( $exam_id ) {
 
     $table_results = $wpdb->prefix . 'ielts_results';
 
-    if ( !$exam ) {
-        echo '<div class="alert alert-danger">Exam not found or inactive.</div>';
-        return;
-    }
-
     if ( isset($_POST['ielts_exam_submit']) && wp_verify_nonce($_POST['ielts_exam_nonce'], 'ielts_exam_submit') ) {
-        // 1. Parse user's time spent (if you still want that)
         $time_spent = isset($_POST['time_spent']) ? floatval($_POST['time_spent']) : 0.0;
-    
-        // 2. Remove housekeeping fields from $_POST
-        $submission_data = $_POST;
-        unset($submission_data['time_spent'], $submission_data['ielts_exam_nonce'], $submission_data['ielts_exam_submit'],$submission_data['_wp_http_referer']);
-    
-        // 3. Convert user answers to array (they might already be an array if form inputs named properly)
-        //    If your form fields are e.g. name="q1", name="q2", then $submission_data is already an assoc array.
-        //    If you used serialization or something else, parse it accordingly.
-        $user_answers = $submission_data; // or maybe unserialize / decode if needed
-    
-        // 4. Get admin's correct answers from the exam row
-        $correct_answers = ielts_get_correct_answers( $exam );
-    
-        // 5. Calculate score
-        $score = ielts_calculate_score( wp_unslash($user_answers), $correct_answers );
 
-        // 6. Calculate tha bandscore
-        $bandscore = ielts_calculate_bandscore( $score, $exam->type );
-    
-        // 6. Serialize or JSON-encode user answers to store them
+        $submission_data = $_POST;
+        unset($submission_data['time_spent'], $submission_data['ielts_exam_nonce'], $submission_data['ielts_exam_submit'], $submission_data['_wp_http_referer']);
+
+        $user_answers    = $submission_data;
+        $correct_answers = ielts_get_correct_answers( $exam );
+        $score           = ielts_calculate_score( wp_unslash($user_answers), $correct_answers );
+        $bandscore       = ielts_calculate_bandscore( $score, $exam->type );
         $answers_serialized = maybe_serialize($submission_data);
-    
-        // 7. Insert into ielts_results
+
         $wpdb->insert(
             $wpdb->prefix . 'ielts_results',
             array(
                 'user_id'             => get_current_user_id(),
-                'category'            => 'reading',          // for reading exam
-                'type'                => $exam->type,        // academic or general
-                'mode'                => $exam->mode,    
+                'category'            => 'reading',
+                'type'                => $exam->type,
+                'mode'                => $exam->mode,
                 'exam_id'             => $exam_id,
                 'exam_name'           => $exam->exam_name,
                 'completed_date_time' => current_time('mysql'),
                 'answers'             => $answers_serialized,
-                'result'              => $score,             // store numeric score
-                'bandscore'           => $bandscore, 
+                'result'              => $score,
+                'bandscore'           => $bandscore,
                 'status'              => 'accept',
                 'user_spent_time'     => $time_spent,
             ),
-            array(
-                '%d','%s','%s', '%s', '%d','%s','%s','%s','%d','%f','%s','%f'
-            )
+            array('%d','%s','%s','%s','%d','%s','%s','%s','%d','%f','%s','%f')
         );
-    
-        echo '<div class="alert alert-success">Exam submitted successfully! </div>
 
-        <br /><a href="https://sample-sl.me/my-dashboard/">
-
-        <button class="btn btn-primary">Go to Dashboard</button></a>';
+        echo '<div class="alert alert-success">Exam submitted successfully!</div>
+              <br /><a href="https://sample-sl.me/my-dashboard/"><button class="btn btn-primary">Go to Dashboard</button></a>';
         return;
-    }    
+    }
+
 
     // Convert hours to total seconds for the JS countdown
     $duration_seconds = $exam->time_duration * 3600;
