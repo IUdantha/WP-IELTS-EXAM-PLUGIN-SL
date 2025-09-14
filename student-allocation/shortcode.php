@@ -77,7 +77,6 @@ function render_allocated_students_table() {
                 <?php if ($is_admin): ?>
                     <th>Teacher</th>
                 <?php endif; ?>
-                <th>Action</th>
             </tr>
         </thead>
         <tbody>
@@ -107,9 +106,6 @@ function render_allocated_students_table() {
                             <span class="spinner-border spinner-border-sm text-primary d-none ms-2 teacher-loading" role="status"></span>
                         </td>
                     <?php endif; ?>
-                    <td>
-                        <button class="btn btn-danger btn-sm delete-user" data-userid="<?php echo esc_attr($student->ID); ?>">Delete</button>
-                    </td>
                 </tr>
             <?php endforeach; ?>
         </tbody>
@@ -121,32 +117,6 @@ function render_allocated_students_table() {
             "pageLength": 25,
             "order": [[4, "desc"]],
             "columnDefs": [{ "orderable": false, "targets": -1 }]
-        });
-
-        // Delete user
-        $('.delete-user').on('click', function(){
-            if(!confirm('Are you sure you want to delete this user? This action cannot be undone.')) return;
-            var user_id = $(this).data('userid');
-            var button = $(this);
-            $.ajax({
-                url: '<?php echo admin_url('admin-ajax.php'); ?>',
-                type: 'POST',
-                data: {
-                    action: 'um_delete_allocated_user',
-                    user_id: user_id,
-                    _wpnonce: '<?php echo wp_create_nonce("um_delete_user_nonce"); ?>'
-                },
-                success: function(response){
-                    if(response.success){
-                        button.closest('tr').fadeOut(500, function(){ $(this).remove(); });
-                    } else {
-                        alert('Error: ' + response.data);
-                    }
-                },
-                error: function(){
-                    alert('Ajax error. Please try again.');
-                }
-            });
         });
 
         // Update teacher allocation
