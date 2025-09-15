@@ -32,7 +32,7 @@ require_once plugin_dir_path(__FILE__) . 'listening/result_cal_listening.php';
 require_once plugin_dir_path(__FILE__) . 'writing/result_cal.php';
 require_once plugin_dir_path(__FILE__) . 'speaking/result_cal.php';
 require_once plugin_dir_path(__FILE__) . 'speaking/result_cal_manual.php';
-require_once plugin_dir_path(__FILE__) . 'student-allocation/shortcode.php';
+require_once plugin_dir_path(__FILE__) . 'contributor/student-allocation/shortcode.php';
 
 // 3. Include the necessary shortcodes for my-results
 require_once plugin_dir_path(__FILE__) . 'my-results/shortcode.php';
