@@ -393,7 +393,7 @@ function ielts_writing_exam_take_exam( $exam_id ) {
         );
 
         echo '<div class="alert alert-success">Writing Exam submitted successfully!</div>
-              <br /><a href="https://ilex.lk/my-dashboard/"><button class="btn btn-primary">Go to Dashboard</button></a>';
+              <br /><a href="https://ielts-sl.com/my-dashboard/"><button class="btn btn-primary">Go to Dashboard</button></a>';
         return;
     }
 

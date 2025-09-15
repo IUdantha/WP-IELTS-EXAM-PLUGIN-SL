@@ -429,7 +429,7 @@ function ielts_listening_exam_take_exam( $exam_id ) {
         );
 
         echo '<div class="alert alert-success">Exam submitted successfully! </div>
-              <br /><a href="https://ilex.lk/my-dashboard/">
+              <br /><a href="https://ielts-sl.com/my-dashboard/">
               <button class="btn btn-primary">Go to Dashboard</button></a>';
         return;
     }
