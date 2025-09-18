@@ -34,9 +34,9 @@ function ielts_student_results_admin_shortcode() {
 
     <div class="container my-4">
       <h2>Student Results</h2>
-      <p class="text-muted mb-3">
+      <!-- <p class="text-muted mb-3">
         Select a student to view all of their IELTS entries. Admins see all students; contributors see only their allocated students.
-      </p>
+      </p> -->
 
       <!-- Student selector -->
       <div class="mb-3" style="max-width:540px">
